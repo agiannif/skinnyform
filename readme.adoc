@@ -1,0 +1,7 @@
+:showtitle:
+:toc: left
+:icons: font
+
+= skinnyform
+
+A small go server that accepts form data and sends it over email. Works with Gmail OAUTH.
