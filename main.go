@@ -90,23 +90,40 @@ func handleFormSubmission(w http.ResponseWriter, r *http.Request) {
 }
 
 func buildEmailMessage(formData FormData) string {
-	emailFrom := os.Getenv("EMAIL_USER")
-	emailTo := os.Getenv("EMAIL_TO")
-
-	var messageBody strings.Builder
-	for key, value := range formData {
-		if strValue, ok := value.(string); ok && strValue != "" {
-			messageBody.WriteString(fmt.Sprintf("%s: %s\n\n", key, strValue))
+	// Helpers
+	get := func(key string) string {
+		if v, ok := formData[key]; ok {
+			if s, ok := v.(string); ok {
+				return strings.TrimSpace(s)
+			}
 		}
+		return ""
 	}
 
-	// Create RFC 2822 email format
-	email := fmt.Sprintf("From: %s\nTo: %s\nSubject: New Form Submission\nContent-Type: text/plain; charset=utf-8\n\n%s",
-		emailFrom,
-		emailTo,
-		messageBody.String())
+	// Pull the fields we care about
+	name := get("name")
+	replyTo := strings.TrimPrefix(get("_replyto"), "mailto:") // strip mailto: if present
+	message := get("message")
+	subject := get("_subject")
+	if subject == "" {
+		subject = "Contact Form Submission"
+	}
 
-	return email
+	// Build a nice plain-text body
+	var body strings.Builder
+	if name != "" {
+		body.WriteString("Name: " + name + "\n")
+	}
+	if replyTo != "" {
+		body.WriteString("Reply-To: " + replyTo + "\n")
+	}
+	body.WriteString("\nMessage:\n" + message + "\n")
+
+	// RFC 2822 message
+	from := os.Getenv("EMAIL_USER")
+	to := os.Getenv("EMAIL_TO")
+	return fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nReply-To: %s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s",
+		from, to, subject, replyTo, body.String())
 }
 
 func sendGmailAPI(message string) error {
@@ -240,7 +257,7 @@ func refreshAccessToken() error {
 	body, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Error token refesh failed (statud %d): %s", resp.StatusCode, string(body))
+		log.Printf("Error token refesh failed (status %d): %s", resp.StatusCode, string(body))
 		return fmt.Errorf("token refresh failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
