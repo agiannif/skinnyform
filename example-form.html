@@ -1,0 +1,56 @@
+<form id="fs-form" name="simple-contact-form" accept-charset="utf-8" action="https://example.com/skinnyform/send"
+  method="post">
+  <fieldset id="fs-form-inputs">
+    <label for="full-name">Your name</label>
+    <input type="text" name="name" id="full-name" placeholder="e.g. John" required>
+
+    <label for="email-address">Email address</label>
+    <input type="email" name="_replyto" id="email-address" placeholder="email@example.com" required>
+
+    <label for="message">Message</label>
+    <textarea rows="9" name="message" id="message" placeholder="Your message…" required minlength="10"></textarea>
+
+    <input type="text" name="website" id="website" value="" style="display:none" tabindex="-1" autocomplete="off"
+      aria-hidden="true">
+  </fieldset>
+
+  <input type="submit" class="button button-primary" value="Send">
+</form>
+
+<script>
+  const form = document.getElementById('fs-form');
+  const submitButton = form.querySelector('input[type="submit"]');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    // Disable submit button during request
+    const originalValue = submitButton.value;
+    submitButton.disabled = true;
+    submitButton.value = 'Sending...';
+
+    const data = Object.fromEntries(new FormData(form));
+
+    try {
+      const res = await fetch(form.action, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data),
+      });
+
+      if (res.ok) {
+        alert('Form submitted successfully!');
+        form.reset();
+      } else {
+        alert('Form submission failed. Please try again.');
+        console.error('Server responded with:', res.status);
+      }
+    } catch (err) {
+      console.error('Error submitting form:', err);
+      alert('Error submitting form. Please check your connection and try again.');
+    } finally {
+      submitButton.disabled = false;
+      submitButton.value = originalValue;
+    }
+  });
+</script>
