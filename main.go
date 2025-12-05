@@ -100,7 +100,7 @@ func initConfig() {
 	}
 
 	config.BlacklistedDomains = make(map[string]bool)
-	blacklistStr := os.Getenv("BLACKLIST_DOMAINS")
+	blacklistStr := os.Getenv("BLACKLISTED_DOMAINS")
 	if blacklistStr != "" {
 		domains := strings.Split(blacklistStr, ",")
 		for _, domain := range domains {
