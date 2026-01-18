@@ -1,3 +1,17 @@
+<!--
+  MULTI-CLIENT CONFIGURATION:
+  Skinnyform routes form submissions to different emails based on the origin of the request.
+
+  Your form's origin (e.g., https://yoursite.com) must be configured in the server's
+  CLIENT_ORIGINS environment variable. The server will route submissions from your origin
+  to the corresponding email address in CLIENT_EMAILS.
+
+  Update the action URL below to point to your skinnyform server instance.
+  Example: action="https://forms.yourserver.com/skinnyform/send"
+
+  The server will only send emails if your origin matches a configured CLIENT_ORIGINS entry.
+-->
+
 <form id="fs-form" name="simple-contact-form" accept-charset="utf-8" action="https://example.com/skinnyform/send"
   method="post">
   <fieldset id="fs-form-inputs">
@@ -10,6 +24,12 @@
     <label for="message">Message</label>
     <textarea rows="9" name="message" id="message" placeholder="Your message…" required minlength="10"></textarea>
 
+    <!--
+      HONEYPOT FIELD FOR SPAM PROTECTION:
+      The 'website' field is hidden from users but visible to bots.
+      If this field is filled, the server accepts the request but does not send the email.
+      Do not remove or rename this field.
+    -->
     <input type="text" name="website" id="website" value="" style="display:none" tabindex="-1" autocomplete="off"
       aria-hidden="true">
   </fieldset>

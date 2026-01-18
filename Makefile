@@ -1,4 +1,4 @@
-.PHONY: all build build-release build-release-amd run clean image push help
+.PHONY: all build build-release build-release-amd run test test-coverage clean image push help
 
 all: run
 
@@ -14,9 +14,17 @@ build-release-amd:
 run:
 	go run
 
+test:
+	go test -v
+
+test-coverage:
+	go test -v -cover -coverprofile=coverage.out
+	go tool cover -html=coverage.out -o coverage.html
+
 clean:
 	go clean
 	rm -f skinnyform
+	rm -f coverage.out coverage.html
 
 image: clean
 	docker build --platform=linux/amd64,linux/arm64 . -t agiannif/skinnyform:latest
@@ -32,6 +40,8 @@ help:
 	@echo "  build-release        : compile without symbols"
 	@echo "  build-release-amd    : compile for linux amd64"
 	@echo "  run                  : run the project"
+	@echo "  test                 : run tests"
+	@echo "  test-coverage        : run tests with coverage report"
 	@echo "  clean                : remove build objects and caches"
 	@echo "  image                : build the docker image"
 	@echo "  push                 : push image to docker"

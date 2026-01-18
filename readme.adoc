@@ -4,4 +4,88 @@
 
 = skinnyform
 
-A small go server that accepts form data and sends it over email. Works with Gmail OAUTH.
+A lightweight Go server that accepts form submissions and forwards them via Gmail API. Supports multiple clients with origin-based routing.
+
+== Features
+
+* Multi-client support - route submissions to different emails based on origin
+* Gmail OAuth2 authentication
+* Spam protection (honeypot, rate limiting, domain blacklisting)
+* CORS support for cross-origin form submissions
+* Docker deployment ready
+
+== Configuration
+
+Required environment variables:
+
+[source,bash]
+----
+GMAIL_CLIENT=<oauth2-client-id>
+GMAIL_SECRET=<oauth2-client-secret>
+GMAIL_REFRESH=<oauth2-refresh-token>
+EMAIL_USER=<sender-email>
+CLIENT_ORIGINS=https://site1.com,https://site2.com
+CLIENT_EMAILS=recipient1@example.com,recipient2@example.com
+----
+
+Optional:
+
+[source,bash]
+----
+PORT=3000                           # Server port
+RATE_LIMIT_WINDOW=1h                # Rate limit time window
+RATE_LIMIT_MAX=3                    # Max requests per window
+BLACKLISTED_DOMAINS=spam.com,bot.net
+----
+
+Origins and emails are paired by position. Requests from `site1.com` route to `recipient1@example.com`.
+
+== Development
+
+[source,bash]
+----
+make build          # Build binary
+make run            # Run server
+make test           # Run tests
+make test-coverage  # Generate coverage report
+make clean          # Remove build artifacts
+----
+
+== Docker
+
+[source,bash]
+----
+make image  # Build multi-arch image
+make push   # Push to registry
+----
+
+== API
+
+*POST /skinnyform/send*
+
+Submit form data as JSON:
+
+[source,json]
+----
+{
+  "name": "John Doe",
+  "_replyto": "john@example.com",
+  "message": "Your message here",
+  "website": ""
+}
+----
+
+The `website` field is a honeypot - leave empty.
+
+*GET /skinnyform/health*
+
+Health check endpoint.
+
+== Security
+
+* Unknown origins return 200 OK but don't send email (prevents enumeration)
+* Rate limiting by IP address
+* Domain blacklisting
+* Honeypot spam protection
+
+See `example-form.html` for a working client-side example.

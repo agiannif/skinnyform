@@ -24,13 +24,15 @@ type Config struct {
 	GmailSecret  string // Required
 	GmailRefresh string // Required
 	EmailUser    string // Required
-	EmailTo      string // Required
+
+	// Client Routing
+	ClientOrigins []string // Required
+	ClientEmails  []string // Required
 
 	// Security
 	RateLimitWindow    time.Duration   // Optional, Default: 1h
 	RateLimitMax       int             // Optional, Default: 3
 	BlacklistedDomains map[string]bool // Optional, Default: []
-	AllowedOrigin      string          // Optional, Default: *
 }
 
 type FormData map[string]interface{}
@@ -81,7 +83,29 @@ func initConfig() {
 	config.GmailSecret = os.Getenv("GMAIL_SECRET")
 	config.GmailRefresh = os.Getenv("GMAIL_REFRESH")
 	config.EmailUser = os.Getenv("EMAIL_USER")
-	config.EmailTo = os.Getenv("EMAIL_TO")
+
+	// Client Routing
+	originsStr := os.Getenv("CLIENT_ORIGINS")
+	if originsStr != "" {
+		origins := strings.Split(originsStr, ",")
+		for _, origin := range origins {
+			origin = strings.TrimSpace(origin)
+			if origin != "" {
+				config.ClientOrigins = append(config.ClientOrigins, normalizeOrigin(origin))
+			}
+		}
+	}
+
+	emailsStr := os.Getenv("CLIENT_EMAILS")
+	if emailsStr != "" {
+		emails := strings.Split(emailsStr, ",")
+		for _, email := range emails {
+			email = strings.TrimSpace(email)
+			if email != "" {
+				config.ClientEmails = append(config.ClientEmails, email)
+			}
+		}
+	}
 
 	// Security
 	var err error
@@ -111,11 +135,12 @@ func initConfig() {
 		}
 	}
 
-	config.AllowedOrigin = getEnvOrDefault("ALLOWED_ORIGIN", "*")
-
 	// Validate Configuration
-	if config.EmailUser == "" || config.EmailTo == "" {
-		log.Fatal("EMAIL_USER and EMAIL_TO must be set")
+	if err := validateClientConfig(config.ClientOrigins, config.ClientEmails); err != nil {
+		log.Fatal(err)
+	}
+	if config.EmailUser == "" {
+		log.Fatal("EMAIL_USER must be set")
 	}
 	if config.GmailClient == "" || config.GmailSecret == "" || config.GmailRefresh == "" {
 		log.Fatal("Gmail OAuth credentials (GMAIL_CLIENT, GMAIL_SECRET, GMAIL_REFRESH) must be set")
@@ -125,7 +150,10 @@ func initConfig() {
 	log.Printf("Configuration loaded:")
 	log.Printf("  Port: %s", config.Port)
 	log.Printf("  Email User: %s", config.EmailUser)
-	log.Printf("  Email To: %s", config.EmailTo)
+	log.Printf("  Client Mappings:")
+	for i := range config.ClientOrigins {
+		log.Printf("    %s -> %s", config.ClientOrigins[i], config.ClientEmails[i])
+	}
 	log.Printf("  Rate Limit: %d requests per %v", config.RateLimitMax, config.RateLimitWindow)
 	if len(config.BlacklistedDomains) > 0 {
 		log.Printf("  Blacklisted Domains: %d configured", len(config.BlacklistedDomains))
@@ -135,7 +163,6 @@ func initConfig() {
 	} else {
 		log.Printf("  Blacklisted Domains: none")
 	}
-	log.Printf("  Allowed Origin: %s", config.AllowedOrigin)
 }
 
 func getEnvOrDefault(key, defaultValue string) string {
@@ -143,6 +170,46 @@ func getEnvOrDefault(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+func validateClientConfig(origins, emails []string) error {
+	if len(origins) == 0 {
+		return fmt.Errorf("CLIENT_ORIGINS cannot be empty")
+	}
+	if len(emails) == 0 {
+		return fmt.Errorf("CLIENT_EMAILS cannot be empty")
+	}
+	if len(origins) != len(emails) {
+		return fmt.Errorf("CLIENT_ORIGINS and CLIENT_EMAILS must have the same number of entries")
+	}
+
+	// Check for duplicate origins and log warning
+	seen := make(map[string]bool)
+	for _, origin := range origins {
+		normalized := normalizeOrigin(origin)
+		if seen[normalized] {
+			log.Printf("Duplicate origin '%s' found in CLIENT_ORIGINS - using first occurrence", normalized)
+		}
+		seen[normalized] = true
+	}
+
+	return nil
+}
+
+func normalizeOrigin(origin string) string {
+	return strings.ToLower(strings.TrimSpace(origin))
+}
+
+func getDestinationEmail(origin string, clientOrigins []string, clientEmails []string) (email string, matched bool) {
+	normalized := normalizeOrigin(origin)
+
+	for i, clientOrigin := range clientOrigins {
+		if normalizeOrigin(clientOrigin) == normalized {
+			return clientEmails[i], true
+		}
+	}
+
+	return "", false
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -153,8 +220,22 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleFormSubmission(w http.ResponseWriter, r *http.Request) {
+	// Get origin from request
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		clientIP := getClientIP(r)
+		log.Printf("Request received without Origin header from IP %s - request accepted but email not sent", clientIP)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "Email sent successfully"})
+		return
+	}
+
 	// Set CORS headers
-	w.Header().Set("Access-Control-Allow-Origin", config.AllowedOrigin)
+	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
@@ -165,6 +246,17 @@ func handleFormSubmission(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Route to destination email based on origin
+	destinationEmail, matched := getDestinationEmail(origin, config.ClientOrigins, config.ClientEmails)
+	if !matched {
+		clientIP := getClientIP(r)
+		log.Printf("Unknown origin '%s' from IP %s - request accepted but email not sent", origin, clientIP)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "Email sent successfully"})
 		return
 	}
 
@@ -227,7 +319,7 @@ func handleFormSubmission(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received form data: %v", formData)
 
 	// Build email message
-	emailMessage := buildEmailMessage(formData)
+	emailMessage := buildEmailMessage(formData, destinationEmail)
 
 	// Send email via Gmail API
 	if err := sendGmailAPI(emailMessage); err != nil {
@@ -311,7 +403,7 @@ func rateLimitExceeded(ip string) bool {
 	return false
 }
 
-func buildEmailMessage(formData FormData) string {
+func buildEmailMessage(formData FormData, destinationEmail string) string {
 	// Helpers
 	get := func(key string) string {
 		if v, ok := formData[key]; ok {
@@ -340,7 +432,7 @@ func buildEmailMessage(formData FormData) string {
 
 	// RFC 2822 message
 	return fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nReply-To: %s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s",
-		config.EmailUser, config.EmailTo, subject, replyTo, body.String())
+		config.EmailUser, destinationEmail, subject, replyTo, body.String())
 }
 
 func sendGmailAPI(message string) error {
